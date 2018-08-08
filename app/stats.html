@@ -1,0 +1,69 @@
+{% extends 'mutation-layout.html' %}
+
+{% block title %}Shader editor{% endblock %}
+
+{% block head %}
+{% parent %}
+	<style>
+		.label {width: 60px }
+	</style>
+{% endblock %}	
+
+
+{% block body %}
+<body onload="startupDraw()">
+{% endblock %}
+
+{% block content %}
+{% parent %}
+	<div class="container" style="padding-top: 60px; width: 950px">
+		<div id="main-div" style="border-left: 1px solid lightgray; display: flex">
+			<p>A: <p>
+			<p>A: <p>
+			<p>A: <p>
+			<p>A: <p>
+			<p>A: <p>
+		</div>
+	</div>
+{% endblock %}
+
+{% block mainscript %}
+<script src="jquery-1.11.1.min.js"></script>
+<script src="bootstrap.min.js"></script>
+
+<script>
+	function getSystemInfo(message, field) {
+		$.ajax({
+			type: 'GET',
+			url: "",
+			data: { },
+			async: false,
+			dataType: "text",
+			success: function(data) { 
+				$(field)[0].value = data;
+				createFunctionCallCreateDefaults();
+			},
+			error: function(data) { console.log('Source shader not found'); }
+		});
+	}
+	
+	function startupDraw() {
+		<!-- Get click count -->
+		getSystemInfo("#likes-count");
+		<!-- Get likes count -->
+		getSystemInfo("#clicks-count");
+		<!-- Get last 10 clicked -->
+		getSystemInfo("#download-clicks-count");
+		<!-- Get last all clicked -->
+		getSystemInfo("#upload-clicks-count");
+	}
+		
+	initializeContextMenuOn("child", "context_menu", menuSetCallback);
+	initializeContextMenuOn("parent", "context_menu", menuSetCallback);
+</script>
+
+{% endblock %}
+
+{% block footerscript %}
+{% parent %}
+{% endblock %}

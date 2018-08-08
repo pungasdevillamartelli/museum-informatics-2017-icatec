@@ -1,0 +1,333 @@
+{% extends 'mutation-layout.html' %}
+
+{% block title %}View form{% endblock %}
+
+{% block body %}
+<body onload="startupDraw()" style="background-color: black;">
+{% endblock %}
+
+{% block content %}
+{% parent %}
+	<!--<div class="container" style="padding-top: 15px; width: 100%">-->
+		<div id="main-div" style="display: flex">
+			<a id="label-status"></a>
+			<div style="width: 100%;">
+				<div id="container-cdiv" class="view-container" style="margin-top: 10px">
+					<canvas id="child0" width="2048" height="2048" draggable="true" onclick="toggleFullscreen()" ondragstart="drag(event)" ondragover="allowDrop(event)" ondrop="drop(event)" style="width: 99.0%; height: 1024px;"></canvas>
+				</div>
+			</div>
+		</div>
+	<!--</div>-->
+{% endblock %}
+
+{% block mainscript %}
+<script src="bootstrap.min.js"></script>
+
+<script>
+	var entitiesDictionary = {};
+	var childCount = 1;
+	var objectClass = "entity-shader",
+		objectErrorFile = "/example-scene-mutate-error.c",
+		fragmentErrorShaderSource,
+		maxAttempts = 2;
+	var loaded = false;
+	var full = false;
+
+
+	function allowDrop(ev) {
+		ev.preventDefault();
+	}
+
+	function drag(ev) {
+		ev.dataTransfer.setData("Text", JSON.stringify(entitiesDictionary[ev.target.id]));
+	}
+
+	function drop(ev) {
+		ev.preventDefault();
+		var glContext = entitiesDictionary[ev.target.id].gl;
+		var result = JSON.parse(ev.dataTransfer.getData("Text"));
+		entitiesDictionary[ev.target.id] = result;
+		entitiesDictionary[ev.target.id].gl = glContext;
+		if (result == "default") alert("Default error");
+		initializeAndDraw(ev.target.id, true);
+	}
+	
+	function addAnimation() {
+	/*	window.requestAnimationFrame(function () { 
+			for (var i=0; i< childCount; i++) {
+				var element = 'child' + i.toString();
+					if (entitiesDictionary[element] != null)
+						initializeAndDraw(element, true);
+			}
+		}); */
+		
+		setInterval(function() {
+			var element = 'child0';
+			if (entitiesDictionary[element] != null) 
+				initializeAndDraw(element, true);
+		}, 30);
+	}
+	
+	function startupDraw() {
+		// Read initial shader
+		//createFunctionGeneric("child0", { }, "/getAdminLike");
+		createFunctionGeneric("child0", { entityClass: "entity-shader" }, "/getLastClick");
+
+		// Read error shader
+		$.ajax({
+			type: 'GET',
+			url: objectErrorFile,
+			data: { },
+			async: false,
+			dataType: "text",
+			success: function(data) { fragmentErrorShaderSource = data; },
+			error: function(data) { console.log('Error shader not found'); }
+		});
+		
+		addAnimation();
+	}
+	
+	function getDelimiters(text, delimiter) {
+		var start = 0, result, results = [];
+		
+		while (true) {
+			result = text.indexOf(delimiter, start);
+			if (result >= 0) {
+				results.push(result);
+				start = result + 1;
+			}
+			else
+				break;
+		}
+		
+		return results;
+	}
+	
+	function createFunctionGeneric(canvasId, arguments, message, attempts) {
+		if (attempts == null)
+			attempts = 0;
+
+		$.ajax({
+			type: 'GET',
+			url: message,
+			data: arguments,
+			dataType: "text",
+			success: function(data) {
+				if (data == "none") {
+					// Database is empty
+					var element = document.getElementById("label-status");
+					element.innerHTML = "Empty BD";
+					return;
+				}
+				try {
+					var result = data.split("|");
+					var object = JSON.parse(result[0]);
+					var entity = entitiesDictionary[canvasId]
+					entitiesDictionary[canvasId] = object;
+					entitiesDictionary[canvasId].id = result[2].trim();
+					entitiesDictionary[canvasId].shaderProgram = null;
+					ensureTranslatedValue(entitiesDictionary[canvasId]);
+
+					if (attempts < maxAttempts) {
+						initializeAndDraw(canvasId, false);
+						
+						if  (entitiesDictionary[canvasId].error == true) {
+							//console.log('Render failed, requesting again...');
+							createFunctionGeneric(canvasId, arguments, message, ++attempts);
+						}
+					}
+					else {
+						initializeAndDraw(canvasId, true);
+					}
+
+					loaded = true;
+				}
+				catch(err) {
+					 document.getElementById("label-status").innerHTML = err.message;
+				}
+			},
+			error : function(data) {
+				console.log('Call failed');
+			}
+		});
+	}
+	
+	function ensureTranslatedValue(entity, errorFunction) {
+		if (errorFunction == null)
+			errorFunction = function(data) { console.log('Source shader not found'); };
+
+		for (var i=0; i< entity.functions.length; i++) 
+			if ((entity.functions[i].value == "") && (entity.functions[i].valueDSL != ""))
+				$.ajax({
+						type: 'GET',
+						url: "/infixConvert",
+						data: { exp: entity.functions[i].valueDSL },
+						async: false,
+						dataType: "text",
+						success: function(data) { 
+							entity.functions[i].value = data;
+						},
+						error: errorFunction
+				});
+	}
+
+	// Scene graphics
+	function initializeAndDraw(canvasId, drawWhenError) {
+		var entity = entitiesDictionary[canvasId];
+		initWebGLSceneShaderMutation(canvasId, entity);
+		if ((entity.error == false) || (drawWhenError == true))
+			drawEntityImage(entity);
+	}
+
+	function initWebGLSceneShaderMutation(canvas, entity) {
+		var canvas = document.getElementById(canvas);
+		initGL(canvas, entity);
+		var gl = entity.gl;
+		initBuffersRGB(entity);
+		initShadersShaderMutation(entity, canvas);
+		gl.disable(gl.DEPTH_TEST);
+	}
+
+	function initShadersShaderMutation(entity, canvas) {
+		var shaderProgram = entity.shaderProgram;
+		var gl = entity.gl;
+		
+		if (shaderProgram == null) {
+			var vertexShader = gl.createShader(gl.VERTEX_SHADER);
+			
+			gl.shaderSource(vertexShader, myVertexShaderSrc);
+			gl.compileShader(vertexShader);
+			var fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+			var fragmentShaderCode = entity.code;
+			gl.shaderSource(fragmentShader, fragmentShaderCode);
+			gl.compileShader(fragmentShader);
+			shaderProgram = gl.createProgram();
+			entity.shaderProgram = shaderProgram;
+			gl.attachShader(shaderProgram, vertexShader);
+			gl.attachShader(shaderProgram, fragmentShader);
+			gl.linkProgram(shaderProgram);
+			
+			if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS))
+				entity.error = true;
+			else
+				entity.error = false;
+
+			if (entity.error == true) {
+				// Draw error image
+				gl.shaderSource(fragmentShader, fragmentErrorShaderSource);
+				gl.compileShader(fragmentShader);
+				gl.linkProgram(shaderProgram);
+				if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+					console.log("Can't even show error.");
+					console.log(gl.getShaderInfoLog(fragmentShader));
+				}
+			}
+		}
+
+		gl.useProgram(shaderProgram);
+		shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, "aVertexPosition");
+		gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+		shaderProgram.pMatrixUniform = gl.getUniformLocation(shaderProgram, "uPMatrix");
+		shaderProgram.mvMatrixUniform = gl.getUniformLocation(shaderProgram, "uMVMatrix");
+	}
+
+	function toggleFullscreen() {
+		if (!loaded) {
+			return;
+		}
+		
+		if (full == true) {
+			takeOutFull();
+			full = false;
+		}
+		else {
+			makeFullscreen();
+			full = true;
+		}
+	}
+
+	function takeOutFull() {
+		if (document.exitFullscreen) {			  document.exitFullscreen();		}
+		else if (document.msExitFullscreen) {	  document.msExitFullscreen();		}
+		else if (document.mozCancelFullScreen) {  document.mozCancelFullScreen();	}
+		else if (document.webkitExitFullscreen) { document.webkitExitFullscreen();	}
+
+		// #TODO: Attach to back to normal screen event
+		setCanvasWithoutFullscreen();
+	} 
+
+	function setCanvasWithoutFullscreen() {
+		var canvas = document.getElementById("child0"), style = canvas.style;
+		style.width = Math.floor(window.screen.availWidth);
+		style.height = Math.floor(window.screen.availHeight);
+	}
+
+	function makeFullscreen() {
+		var canvas = document.getElementById("child0"), style = canvas.style;
+		canvas.width = window.screen.availWidth;
+		canvas.height = window.screen.availHeight;
+		style.width = "99%";
+		style.height = window.screen.availHeight + "px"; 
+
+		if (canvas.requestFullscreen) {				canvas.requestFullscreen();			}
+		else if (canvas.msRequestFullscreen) {		canvas.msRequestFullscreen();		}
+		else if (canvas.mozRequestFullScreen) {		canvas.mozRequestFullScreen();		}
+		else if (canvas.webkitRequestFullscreen) {	canvas.webkitRequestFullscreen();	}
+	}
+
+	function drawEntityImage (entity) { 
+		var gl = entity.gl;
+		globalVa = timerValue();
+		var location = gl.getUniformLocation(entity.shaderProgram, "time");
+		gl.uniform1f(location, globalVa);
+		gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+		mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 100.0, pMatrix);
+		mat4.identity(mvMatrix);
+		mat4.translate(mvMatrix, [0.0, 0.0, -1.2]);
+		gl.bindBuffer(gl.ARRAY_BUFFER, entity.squareVertexPositionBuffer);
+		gl.vertexAttribPointer(entity.shaderProgram.vertexPositionAttribute, entity.squareVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+		setMatrixUniforms(entity);
+		gl.drawArrays(gl.TRIANGLE_STRIP, 0, entity.squareVertexPositionBuffer.numItems);
+	}
+
+	function menuCallbackPrefix(name, index) {
+		if (index==1) {
+			$.ajax({
+					type: 'GET',
+					url: "/like",
+					data: { entity: JSON.stringify(entitiesDictionary[name]), entityClass: objectClass },
+					dataType: "text",
+					success: function(data) { console.log("Like " + data + " accepted");  },
+					error: function(data) { console.log('Like call failed'); }
+				});
+		}
+		else if (index==2) {
+			$.ajax({
+					type: 'GET',
+					url: "/dislike",
+					data: { entity: JSON.stringify(entitiesDictionary[name]), entityClass: objectClass },
+					dataType: "text",
+					success: function(data) { console.log("Dislike " + data + " accepted"); },
+					error: function(data) { console.log('Dislike call failed'); }
+				});	
+		}
+	}
+
+	initializeContextMenuOn("child", "context_menu", menuSetCallback);
+
+	setInterval(function() {
+			createFunctionGeneric("child0", { entityClass: "entity-shader" }, "/getLastClick");
+		}, 1500);
+</script>
+
+
+<div id="context_menu" style="border:1px solid black;background-color:#EEEEEE;visibility:hidden;position:absolute;line-height:25px; padding-left: 0px;">
+	<div><input type="button" value="Like" onclick="menuCallbackPrefix(globalSelectedIndex, 1)" style="width: 100px"/></div>
+	<div><input type="button" value="Dislike" onclick="menuCallbackPrefix(globalSelectedIndex, 2)" style="width: 100px"/></div>
+</div>
+
+{% endblock %}
+
+{% block footerscript %}
+{% parent %}
+{% endblock %}

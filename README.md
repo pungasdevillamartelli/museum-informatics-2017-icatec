@@ -1,2 +1,3 @@
-# museum-informatics-2017-icatec
-Evolving Shaders implementation (in fact, initial setup) at Museo de la Informatica / ICATEC, 2017.
+# evolvingshaders.ddns.net strip for Informatics Museum / ICATEC, 2017
+
+This evolvingshaders.ddns.net fork has the minimum amount of files for the presentation at the museum, also some interface modifications.

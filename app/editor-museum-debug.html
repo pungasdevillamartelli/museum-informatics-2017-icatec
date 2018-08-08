@@ -1,0 +1,659 @@
+{% extends 'mutation-layout.html' %}
+
+{% block title %}Museum shader mutator{% endblock %}
+
+{% block body %}
+<body onload="startupDraw()" style="background-color: black;">
+{% endblock %}
+
+{% block content %}
+{% parent %}
+		<div class="container" style="padding-top: 15px; width: 100%">
+		<div id="main-div" style="display: flex">
+			<a id="label-status"></a>
+			<div style="width: 100%;">
+				<div id="container-cdiv" class="view-container" style="margin-top: 10px">
+					{% for i in [0, 1, 2, 3] %}
+						<div>
+						{% for j in [0, 1, 2, 3] %}
+							<canvas id="child{{ (j + i * 4).toString() }}" width="192" height="192" draggable="true" ondragstart="drag(event)" ondragover="allowDrop(event)" ondrop="drop(event)" style="width: 24.7%; height: 200px;"></canvas>
+						{% endfor %}
+						</div>
+					{% endfor %}
+				</div>
+				<div>
+					<a id="labelfps">fps</a>
+				</div>
+			</div>
+		</div>
+	</div>
+{% endblock %}
+
+{% block mainscript %}
+<script src="bootstrap.min.js"></script>
+<script src="mutation-strategy.js"></script>
+
+<script>		
+	var entitiesDictionary = {};
+	var childCount = 16;
+	var objectClass = "entity-shader",
+		objectErrorFile = "/example-scene-mutate-error.c",
+		fragmentErrorShaderSource,
+		maxAttempts = 8;
+	
+
+	function selectCrossoverParents() {
+		var table = {};
+		var result = [];
+		
+		for (var i=0; i< parentCount; i++) {
+			var canvasId = "parent" + i.toString();
+			
+			// Make a dictionary with variables and return type as a key
+			for (var j=0; j< entitiesDictionary[canvasId].functions.length; j++) {
+				var fun = entitiesDictionary[canvasId].functions[j];
+				var key = fun.type + "-" + fun.vars;
+				
+				if (table[key] == null)
+					table[key] = [];
+				table[key].push([j, canvasId]);
+			}
+		}
+	
+		// Get a pair of functions with the same key
+		for (var k in table) 
+			if (table[k].length > 2) 
+				result.push(table[k]);
+		// Select random index
+		var index = Math.floor(Math.random() * result.length);
+		// Select random pair
+		var list = shakedList(result[index].length);
+		
+		return [result[index][list[0]], result[index][list[1]]];
+	}
+		
+	function shakedList(count) {
+		var value = [];
+		for (var i=0; i< count; i++)
+			value.push(i);
+		shake(value);
+		return value;
+	}
+	
+	function shake(list) {
+		for (var i=0; i< list.length; i++) {
+			var a = Math.floor(Math.random() * list.length);
+			var b = Math.floor(Math.random() * list.length);
+			var aux = list[a];
+			list[a] = list[b];
+			list[b] = aux;
+		}
+	}
+
+	function allowDrop(ev) {
+		ev.preventDefault();
+	}
+
+	function drag(ev) {
+		ev.dataTransfer.setData("Text", JSON.stringify(entitiesDictionary[ev.target.id]));
+	}
+
+	function drop(ev) {
+		ev.preventDefault();
+		var glContext = entitiesDictionary[ev.target.id].gl;
+		var result = JSON.parse(ev.dataTransfer.getData("Text"));
+		entitiesDictionary[ev.target.id] = result;
+		entitiesDictionary[ev.target.id].gl = glContext;
+		if (result == "default") alert("Default error");
+		initializeAndDraw(ev.target.id, true);
+	}
+	
+	function resetTime() {
+		resetTimer();
+	}
+	
+	function addAnimation() {
+	/*	window.requestAnimationFrame(function () { 
+			for (var i=0; i< childCount; i++) {
+				var element = 'child' + i.toString();
+					if (entitiesDictionary[element] != null)
+						initializeAndDraw(element, true);
+			}
+		}); */
+		
+		setInterval(function() {
+			for (var i=0; i< childCount; i++) {
+				var element = 'child' + i.toString();
+					if (entitiesDictionary[element] != null) {
+						initializeAndDraw(element, true);
+					}
+			}
+		}, 50);
+	}
+	
+	function startupDraw() {
+		// Read initial shader
+		for (var i=0; i< 16; i++) {
+			var canvasId = "child" + i.toString();
+			createFunctionGeneric(canvasId, { }, "/getAdminLike");
+		}
+		
+		// Read error shader
+		$.ajax({
+			type: 'GET',
+			url: objectErrorFile,
+			data: { },
+			async: false,
+			dataType: "text",
+			success: function(data) { fragmentErrorShaderSource = data; },
+			error: function(data) { console.log('Error shader not found'); }
+		});
+		
+		addAnimation();
+	}
+	
+	var clickActionStart = timerValue(), clickActionEnd = timerValue();
+	
+	function registerClickActionStart() {
+		clickActionStart = timerValue();
+		document.getElementById("labelfps").innerHTML = "";
+	}
+	
+	function registerClickActionEnd() {
+		clickActionEnd = timerValue();
+		document.getElementById("labelfps").innerHTML = clickActionEnd - clickActionStart;
+	}
+	
+	function createFunctionGenericOperate(canvasId, arguments, message, originalEntity, functionIndex, attempts) {
+		//var target = new MutationTarget(originalEntity, functionIndex);
+		if (attempts == null)
+			attempts = 0;
+		var originalArguments = arguments;
+		
+		$.ajax({
+			type: 'GET',
+			url: message,
+			data: arguments,
+			dataType: "text",
+			success: function(data) {
+				try {
+					var result = data.split("|");
+					entitiesDictionary[canvasId] = { };
+					// #TODO: Move to entity.copyFrom
+					var entity = entitiesDictionary[canvasId];
+					entity.code = originalEntity.code;
+					entity.factorizedCode = originalEntity.factorizedCode;
+					entity.entityClass = originalEntity.entityClass;
+				
+					// #TODO: Move to exp.copyFrom 
+					entity.functions = [];
+					for (var i=0; i< originalEntity.functions.length; i++) {
+						var exp = {}, originalFunction = originalEntity.functions[i];
+						exp.name = originalFunction.name;
+						exp.vars = originalFunction.vars;
+						exp.language = originalFunction.language;
+						exp.definition = originalFunction.definition;
+						
+						if (i == functionIndex) {
+							exp.value = result[1];
+							exp.valueDSL = result[0];
+						}
+						else {
+							exp.value = originalFunction.value;
+							exp.valueDSL = originalFunction.valueDSL;
+						}
+						
+						entity.error = false;
+						entity.functions.push(exp);
+					}	
+					
+					replaceFunctionDefinitions(entity);
+					fixFactorizedVars(entity);
+				
+					
+					if (attempts < maxAttempts) {
+						entity.error = false;
+						initializeAndDraw(canvasId, false);
+						
+						if  (entity.error == true) {
+							//console.log('Render failed, requesting again...');
+							createFunctionGenericOperate(canvasId, originalArguments, message, originalEntity, functionIndex, ++attempts);
+						}
+					}
+					else {
+						//console.log('Rendering error anyways...');
+						initializeAndDraw(canvasId, true);
+					}
+					
+					registerClickActionEnd();
+				}
+				catch(err) {
+					 document.getElementById("label-status").innerHTML = err.message;
+					 registerClickActionEnd();
+				}
+			},
+			error: function(data) {
+				console.log('Call failed');
+				registerClickActionEnd();
+			}
+		});
+	}
+	
+	function fixFactorizedVars (entity) {
+		if (getStartDelimiters(entity.code).length > 0) {
+			entity.factorizedCode = entity.code;			
+		}
+		entity.code = getProcessedShader(entity);
+	}
+	
+	function createFunctionCallMutateOn(name, canvasId, functionIndex) {
+		var maxSize = getMaxSize();
+		var entity = entitiesDictionary[name];
+		
+		createFunctionGenericOperate(
+			canvasId,	
+			{ language: "glsl-dsl", 
+			  maxSize: maxSize, 
+			  vars: entitiesDictionary[name].functions[functionIndex].vars,
+			  entityClass: entitiesDictionary[name].entityClass, 
+			  entity: entitiesDictionary[name].functions[functionIndex].valueDSL
+			}, 
+			 "/mutateWithVars",
+			 entity, 
+			 functionIndex);
+	}
+	
+/*	function createFunctionCallCrossoverOn(nameA, nameB, canvasId, functionIndexA, functionIndexB) {
+		var maxSize = getMaxSize();	
+		var entity = entitiesDictionary[nameA];
+		
+		createFunctionGeneric(
+			canvasId,
+			{ language: "glsl-dsl", 
+			  maxSize: maxSize,	
+			  vars: entitiesDictionary[nameA].functions[functionIndexA].vars,
+			  expA: entitiesDictionary[nameA].functions[functionIndexA].valueDSL, 
+			  expB: entitiesDictionary[nameB].functions[functionIndexB].valueDSL },
+			"/crossoverWithVars",
+			entity, 
+			functionIndexA);
+	}	*/
+	
+	function getMaxSize() {
+		return 40;
+	}
+	
+	function createFunctionCrossoverFromLib(name, canvasId) {
+		var maxSize = getMaxSize();
+		var xmlHttp = null;
+		var entity = entitiesDictionary[name];
+		
+		xmlHttp = new XMLHttpRequest();
+		xmlHttp.open("GET", "/getWithCriteria?entityClass=" + objectClass + "&vars=", false);
+		xmlHttp.send(null);
+		
+		if (xmlHttp.status === 200) { 
+			var newElementData = xmlHttp.responseText.split("|");
+			createFunctionGeneric(
+				canvasId,
+				{ language: "glsl-dsl", 
+				  maxSize: maxSize, 
+				  objectDataA: entity.functions[functionIndex], 
+				  objectDataB: newElementData[1]},
+				"/messageCrossover",
+				entity,
+				functionIndex);
+		}
+	}
+
+	function createFunctionMutateFromLib(name, canvasId) {
+		var maxSize = getMaxSize();
+		var xmlHttp = null;
+		
+		xmlHttp = new XMLHttpRequest();
+		xmlHttp.open("GET", "/getWithCriteria?entityClass=" + objectClass, false);
+		xmlHttp.send(null);
+		
+		if (xmlHttp.status === 200) { 
+			var newElementData = xmlHttp.responseText.split("|");
+			var entity = entitiesDictionary[name];
+			createFunctionGenericOperate(
+				canvasId,
+				{ language: "glsl-dsl", 
+				  maxSize: maxSize, 
+				  vars: entitiesDictionary[name].functions[functionIndex].vars,
+				  entityClass: entitiesDictionary[name].entityClass, 
+				  entity: entitiesDictionary[name].functions[functionIndex].valueDSL
+				},
+				"/mutateWithVars",
+				entity,
+				functionIndex);
+		}
+	}
+	
+	function createFromLib(name, canvasId) {
+		createFunctionGeneric(canvasId, { }, "/getAdminLike");
+	}
+
+	function createFromAdminLib(name, canvasId) {
+		createFunctionGeneric(canvasId, { }, "/getAdminLike");
+	}
+	
+	function getDelimiters(text, delimiter) {
+		var start = 0, result, results = [];
+		
+		while (true) {
+			result = text.indexOf(delimiter, start);
+			if (result >= 0) {
+				results.push(result);
+				start = result + 1;
+			}
+			else
+				break;
+		}
+		
+		return results;
+	}
+	
+	function getStartDelimiters(text) {
+		return getDelimiters(text, "#{");
+	}
+	
+/*	function getEndDelimiters(text) {
+		return getDelimiters(text, "}#");
+	}	*/
+	
+	function createFunctionGeneric(canvasId, arguments, message, attempts) {
+		if (attempts == null)
+			attempts = 0;
+			
+		$.ajax({
+			type: 'GET',
+			url: message,
+			data: arguments,
+			dataType: "text",
+			success: function(data) {
+				if (data == "none") {
+					// #NOTE: database is empty of default functions
+					var element = document.getElementById("label-status");
+					element.innerHTML = "Empty BD";
+					return;
+				}
+				try {
+					var result = data.split("|");
+					var object = JSON.parse(result[0]);
+					var entity = entitiesDictionary[canvasId]
+					entitiesDictionary[canvasId] = object;
+					entitiesDictionary[canvasId].id = result[2].trim();
+					ensureTranslatedValue(entitiesDictionary[canvasId]);				
+						
+					if (attempts < maxAttempts) {
+						initializeAndDraw(canvasId, false);
+						
+						if  (entitiesDictionary[canvasId].error == true) {
+							//console.log('Render failed, requesting again...');
+							createFunctionGeneric(canvasId, arguments, message, ++attempts);
+						}
+					}
+					else {
+						initializeAndDraw(canvasId, true);
+					}	
+				}
+				catch(err) {
+					 document.getElementById("label-status").innerHTML = err.message;
+				}
+			},
+			error : function(data) {
+				console.log('Call failed');
+			}
+		});
+	}
+	
+	function addChildCallBack(name) {
+		$("#" + name)
+			.click(function(evt) {
+				var v = Math.sqrt(childCount);
+				registerClickedEntity(name);
+				registerClickActionStart();
+				
+				for (var i=0; i< v; i++) {
+					for (var j=0; j< v; j++) {
+						var canvasId = "child" + (j + i * 4).toString();
+					
+						if (name != canvasId) 
+							if (entitiesDictionary[name] && 
+								(entitiesDictionary[name].functions.length > 0) && 
+								(entitiesDictionary[name].error != true))
+									operateOnEntity(name, canvasId, i, j);
+					}
+				}
+				
+				registerClickActionEnd();
+			});
+	}
+	
+	function chooseOperation(i, j) {
+		var v = i + j;
+		
+		if (v < 4.0)
+			return "mutate";
+
+		var maxValue = Math.sqrt(childCount) * 2.0 - 2.0;
+		var value = Math.random() * (maxValue + 1.0);
+
+		if (value < v)
+			return "getFromGallery";
+		else 
+			return "mutate";
+	}
+	
+	function registerClickedEntity(name) {
+		$.ajax({
+			type: 'GET',
+			url: "/clickedOn",
+			data: { entity: JSON.stringify(entitiesDictionary[name]) },
+			dataType: "text",
+			success: function (data) { console.log("Click reported"); },
+			error: function (data) { console.log('Click reported call failed'); }
+		});		
+	}			
+	
+	function operateOnEntity(name, canvasId, i, j) {
+		var operation = chooseOperation(i, j);
+		
+		if (operation == "mutate")
+			createFunctionCallMutateOn(name, canvasId, getFunctionIndex(name));
+		else if (operation == "crossoverFromGallery")
+			createFunctionCrossoverFromLib(name, canvasId);
+		else if (operation == "mutateFromGallery")
+			createFunctionMutateFromLib(name, canvasId);			
+		else if (operation == "getFromGallery")
+			createFromLib(name, canvasId);			
+		else if (operation == "getFromAdminGallery")
+			createFromAdminLib(name, canvasId);				
+		else
+			console.log("Invalid operation.");
+	}
+	
+	function getFunctionIndex(name) {
+		var functionsCount = entitiesDictionary[name].functions.length;
+		return Math.floor((Math.random() * functionsCount)).toString();
+	}
+	
+	function getProcessedShader(entity) {
+		var result = entity.factorizedCode;
+		for (var i=0; i< entity.functions.length; i++)
+			result = result.replace(entity.functions[i].definition, 
+									entity.functions[i].value);
+		return result;
+	}
+
+	function replaceFunctionDefinitions(entity) {
+		var result = entity.factorizedCode;
+		
+		for (var i=0; i< entity.functions.length; i++) {
+			var definition = "#{" + 
+								entity.functions[i].name + "(" +
+								entity.functions[i].vars + ")" + " :: " +
+								entity.functions[i].language + " :: " +
+								entity.functions[i].value + " :: " +
+								entity.functions[i].valueDSL + 
+							"}#";
+			result = result.replace(entity.functions[i].definition, definition);
+			entity.functions[i].definition = definition;
+		}
+		
+		entity.factorizedCode = result;
+	}
+	
+	function ensureTranslatedValue(entity, errorFunction) {
+		if (errorFunction == null)
+			errorFunction = function(data) { console.log('Source shader not found'); };
+		
+		for (var i=0; i< entity.functions.length; i++) 
+			if ((entity.functions[i].value == "") && (entity.functions[i].valueDSL != ""))
+				$.ajax({
+						type: 'GET',
+						url: "/infixConvert",
+						data: { exp: entity.functions[i].valueDSL },
+						async: false,
+						dataType: "text",
+						success: function(data) { 
+							entity.functions[i].value = data;
+						},
+						error: errorFunction
+				});
+	}
+	
+	// Scene graphics
+	function initializeAndDraw(canvasId, drawWhenError) {
+		var entity = entitiesDictionary[canvasId];
+		initWebGLSceneShaderMutation(canvasId, entity);
+		if ((entity.error == false) || (drawWhenError == true))
+			drawEntityImage(entity);
+	}
+		
+	function initWebGLSceneShaderMutation(canvas, entity) {
+		var canvas = document.getElementById(canvas);
+		initGL(canvas, entity);
+		var gl = entity.gl;
+		initBuffersRGB(entity);
+		initShadersShaderMutation(entity, canvas);
+		//gl.clearColor(0.0, 0.0, 0.0, 1.0);
+		gl.disable(gl.DEPTH_TEST);
+	}
+	
+	function initShadersShaderMutation(entity, canvas) {
+		var shaderProgram = entity.shaderProgram;
+		var gl = entity.gl;
+		
+		if (shaderProgram == null) {
+			var vertexShader = gl.createShader(gl.VERTEX_SHADER);
+			
+			gl.shaderSource(vertexShader, myVertexShaderSrc);
+			gl.compileShader(vertexShader);
+			var fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+			var fragmentShaderCode = entity.code;
+			gl.shaderSource(fragmentShader, fragmentShaderCode);
+			gl.compileShader(fragmentShader);
+			shaderProgram = gl.createProgram();
+			entity.shaderProgram = shaderProgram;
+			gl.attachShader(shaderProgram, vertexShader);
+			gl.attachShader(shaderProgram, fragmentShader);
+			gl.linkProgram(shaderProgram);
+			
+			if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+				entity.error = true;
+
+			/*	// Report error
+				// Show error on console
+				//console.log("Could not initialise shaders for " + entity);
+				var errorDescription = gl.getShaderInfoLog(fragmentShader);
+				var lastError = gl.getProgramInfoLog(shaderProgram); 
+				//console.log(lastError + " " + errorDescription);
+				
+				$.ajax({
+					type: 'GET',
+					url: "/registerError",
+					data: { description: JSON.stringify(lastError + " " + errorDescription), code: fragmentShaderCode },
+					dataType: "text",
+					success: function(data) { console.log("Error reported");  },
+					error: function(data) { console.log('Error reported call failed'); }
+				});		*/
+			}
+			else
+				entity.error = false;
+			
+			if (entity.error == true) {
+				// Draw error image
+				gl.shaderSource(fragmentShader, fragmentErrorShaderSource);
+				gl.compileShader(fragmentShader);
+				gl.linkProgram(shaderProgram);
+				if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+					console.log("Can't even show error.");
+					console.log(gl.getShaderInfoLog(fragmentShader));
+				}
+			}
+		}
+		
+		gl.useProgram(shaderProgram);
+		shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, "aVertexPosition");
+		gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+		shaderProgram.pMatrixUniform = gl.getUniformLocation(shaderProgram, "uPMatrix");
+		shaderProgram.mvMatrixUniform = gl.getUniformLocation(shaderProgram, "uMVMatrix");
+	}
+
+	function drawEntityImage (entity) { 
+		var gl = entity.gl;
+		globalVa = timerValue();
+		var location = gl.getUniformLocation(entity.shaderProgram, "time");
+		gl.uniform1f(location, globalVa);	
+		gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+		mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 100.0, pMatrix);
+		mat4.identity(mvMatrix);
+		mat4.translate(mvMatrix, [0.0, 0.0, -1.2]);
+		gl.bindBuffer(gl.ARRAY_BUFFER, entity.squareVertexPositionBuffer);
+		gl.vertexAttribPointer(entity.shaderProgram.vertexPositionAttribute, entity.squareVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+		setMatrixUniforms(entity);
+		gl.drawArrays(gl.TRIANGLE_STRIP, 0, entity.squareVertexPositionBuffer.numItems);
+	}
+	
+	function menuCallbackPrefix(name, index) {
+		if (index==1) {
+			$.ajax({
+					type: 'GET',
+					url: "/like",
+					data: { entity: JSON.stringify(entitiesDictionary[name]), entityClass: objectClass },
+					dataType: "text",
+					success: function(data) { console.log("Like " + data + " accepted");  },
+					error: function(data) { console.log('Like call failed'); }
+				});			
+		}
+		else if (index==2) {
+			$.ajax({
+					type: 'GET',
+					url: "/dislike",
+					data: { entity: JSON.stringify(entitiesDictionary[name]), entityClass: objectClass },
+					dataType: "text",
+					success: function(data) { console.log("Dislike " + data + " accepted"); },
+					error: function(data) { console.log('Dislike call failed'); }
+				});	
+		}
+	}
+
+
+	for (var i=0; i< childCount; i++) 
+		addChildCallBack("child" + i);
+		
+	initializeContextMenuOn("child", "context_menu", menuSetCallback);
+</script>
+
+<div id="context_menu" style="border:1px solid black;background-color:#EEEEEE;visibility:hidden;position:absolute;line-height:25px; padding-left: 0px;">
+	<div><input type="button" value="Like" onclick="menuCallbackPrefix(globalSelectedIndex, 1)" style="width: 100px"/></div>
+	<div><input type="button" value="Dislike" onclick="menuCallbackPrefix(globalSelectedIndex, 2)" style="width: 100px"/></div>
+</div>
+{% endblock %}
+
+{% block footerscript %}
+{% parent %}
+{% endblock %}

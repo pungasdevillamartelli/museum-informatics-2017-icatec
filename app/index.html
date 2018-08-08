@@ -1,0 +1,53 @@
+{% extends 'main-layout.html' %}
+
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta http-equiv="X-UA-Compatible" content="IE=edge">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<meta name="description" content="">
+		<meta name="author" content="pvm octavo arlek">
+		<meta name="keywords" content="pvm museo informatica icatec">
+		<title>{% block title %}{% parent %}{% endblock %}</title>
+		
+		{% block head %}
+		{% parent %}
+		{% endblock %}
+	</head>
+
+	<body>
+		<div class="container">
+			{% block content %}
+			{% parent %}
+
+			<div class="container" style="padding-top: 60px">
+			<div>
+				<div id="main-div" style="max-width: 613px;">
+					<h2>Evolving Shaders</h2>
+					<h3>Museo de la Informatica 2017 - ICATEC!</h3>
+					<br/>
+					<h4>GLSL mutation engine for changing our shaders just clicking.</h4>
+					<a href="/editor-museum.html">Go here please for editor.</h4>
+					<br/>
+					<a href="/view.html">Go here please for selected item.</h4>
+					<br/>
+				</div>
+				<br/>
+			</div>
+			{% endblock %}
+		</div>
+	</body>
+
+{% block mainscript %}
+
+<script src="jquery-1.11.1.min.js"></script>
+<script src="bootstrap.min.js"></script>
+
+<script>		
+
+</script>
+		
+{% block footerscript %}
+{% parent %}
+{% endblock %}	
+</html>
