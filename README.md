@@ -1,2 +1,2 @@
 # museum-informatics-2017-icatec
-Implementacion de Evolving Shaders inicial en Museo de la Informatica / ICATEC, 2017.
+Evolving Shaders implementation (in fact, initial setup) at Museo de la Informatica / ICATEC, 2017.
